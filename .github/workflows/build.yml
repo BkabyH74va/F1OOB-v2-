@@ -1,0 +1,39 @@
+name: Build F1OOB v2
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Build
+      run: |
+        xcodebuild \
+          -project F1OOB.xcodeproj \
+          -scheme F1OOB \
+          -configuration Release \
+          -destination 'generic/platform=iOS' \
+          -derivedDataPath DerivedData \
+          CODE_SIGN_IDENTITY="" \
+          CODE_SIGNING_REQUIRED=NO \
+          CODE_SIGNING_ALLOWED=NO \
+          build
+    
+    - name: Create IPA
+      run: |
+        APP=$(find DerivedData -name "*.app" -type d | head -1)
+        mkdir -p Payload
+        cp -r "$APP" Payload/
+        zip -r F1OOB-v2.ipa Payload/
+    
+    - name: Upload
+      uses: actions/upload-artifact@v4
+      with:
+        name: F1OOB-v2-ipa
+        path: F1OOB-v2.ipa
