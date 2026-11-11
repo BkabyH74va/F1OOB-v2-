@@ -1,3 +1,4 @@
+
 // !$*UTF8*$!
 {
 	archiveVersion = 1;
@@ -66,11 +67,11 @@
 /* Begin PBXNativeTarget section */
 		AA0000000000000000000016 /* F1OOB */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = AA0000000000000000000017 /* Build configuration list for PBXNativeTarget "F1OOB" */;
+			buildConfigurationList = AA0000000000000000000017 /* Build configuration list for PBXNativeTarget */;
 			buildPhases = (
-				AA0000000000000000000018 /* Sources */,
-				AA0000000000000000000012 /* Frameworks */,
-				AA0000000000000000000019 /* Resources */,
+				AA0000000000000018 /* Sources */,
+				AA0000000000000012 /* Frameworks */,
+				AA0000000000000019 /* Resources */,
 			);
 			buildRules = (
 			);
@@ -124,7 +125,7 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
-		AA0000000000000000000018 /* Sources */ = {
+		AA0000000000000018 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -154,24 +155,29 @@
 				);
 				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
 				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
 			};
 			name = Debug;
 		};
-		AA0000000000000000000023 /* Release */ = {
+		AA0000000000000023 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_FILE_STRIP = YES;
 				COPY_PHASE_STRIP = NO;
-				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEBUG_INFORMATION_FORMAT = dwarf-with-dsym;
 				ENABLE_NS_ASSERTIONS = NO;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
 				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
 				VALIDATE_PRODUCT = YES;
 			};
 			name = Release;
 		};
-		AA0000000000000000000024 /* Debug */ = {
+		AA0000000000000024 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
@@ -183,11 +189,14 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.jasonquiles.F1OOB;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Debug;
 		};
-		AA0000000000000000000025 /* Release */ = {
+		AA0000000000000025 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
@@ -199,6 +208,9 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.jasonquiles.F1OOB;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Release;
@@ -206,25 +218,24 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		AA0000000000000000000017 /* Build configuration list for PBXNativeTarget "F1OOB" */ = {
+		AA0000000000000017 /* Build configuration list for PBXNativeTarget "F1OOB" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				AA0000000000000000000024 /* Debug */,
-				AA0000000000000000000025 /* Release */,
+				AA0000000000000024 /* Debug */,
+				AA0000000000000025 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		AA0000000000000000000021 /* Build configuration list for PBXProject "F1OOB" */ = {
+		AA0000000000000021 /* Build configuration list for PBXProject "F1OOB" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				AA0000000000000000000022 /* Debug */,
-				AA0000000000000000000023 /* Release */,
+				AA0000000000000022 /* Debug */,
+				AA0000000000000023 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
 	};
-	rootObject = AA0000000000000000000020 /* Project object */;
-}
+	rootObject = AA0000000000000020 /* Project object */;
