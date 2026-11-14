@@ -10,10 +10,10 @@ import re
 
 PROJ = pathlib.Path("F1OOB.xcodeproj/project.pbxproj")
 SRC = pathlib.Path("Sources")
+ROOT = pathlib.Path(".")
 
 BUILD_FILE = "A1B2C3D4A1B2C3D4A1B2C3D4"
 FILE_REF = "A1B2C3D4A1B2C3D4A1B2C3D5"
-FILE_REF_H = "A1B2C3D4A1B2C3D4A1B2C3D6"
 
 HEADER = """//
 //  IOKitTrapShim.h
@@ -21,8 +21,16 @@ HEADER = """//
 //  IOConnectTrap0-6 are declared in IOKitLib.h but are not exported by the
 //  iOS IOKit stub, so linking against them fails. Resolve at runtime instead.
 //
+//  IOKit headers are private and often absent from the iPhoneOS SDK, so the
+//  types are supplied from mach/mach.h when IOKitLib.h cannot be found.
+//
 
+#if __has_include(<IOKit/IOKitLib.h>)
 #import <IOKit/IOKitLib.h>
+#else
+#import <mach/mach.h>
+typedef mach_port_t io_connect_t;
+#endif
 
 kern_return_t shim_IOConnectTrap0(io_connect_t connect, uint32_t index, uint64_t a);
 kern_return_t shim_IOConnectTrap1(io_connect_t connect, uint32_t index, uint64_t a, uint64_t b);
@@ -78,14 +86,15 @@ LDFLAGS = (
 
 
 def write_sources():
+    """Write to both root and Sources so group resolution cannot miss."""
     SRC.mkdir(parents=True, exist_ok=True)
-    (SRC / "IOKitTrapShim.h").write_text(HEADER)
-    (SRC / "IOKitTrapShim.m").write_text(IMPL)
-    print("shim sources written")
+    for base in (ROOT, SRC):
+        (base / "IOKitTrapShim.h").write_text(HEADER)
+        (base / "IOKitTrapShim.m").write_text(IMPL)
+    print("shim written to root and Sources/")
 
 
 def target_blocks(text):
-    """Offsets of buildSettings blocks that belong to the target."""
     offsets = []
     pos = 0
     while True:
@@ -130,13 +139,10 @@ def wire(text):
         "/* Begin PBXFileReference section */\n"
         f"\t\t{FILE_REF} /* IOKitTrapShim.m */ = {{isa = PBXFileReference; "
         "lastKnownFileType = sourcecode.c.objc; path = IOKitTrapShim.m; "
-        'sourceTree = "<group>"; };\n'
-        f"\t\t{FILE_REF_H} /* IOKitTrapShim.h */ = {{isa = PBXFileReference; "
-        "lastKnownFileType = sourcecode.c.h; path = IOKitTrapShim.h; "
         'sourceTree = "<group>"; };\n',
         1,
     )
-    print("file references added")
+    print("file reference added")
 
     phase = text.find("isa = PBXSourcesBuildPhase;")
     if phase == -1:
