@@ -23,14 +23,16 @@ jobs:
 
       - name: Preflight
         run: |
-          echo "image: ${ImageOS:-?} ${ImageVersion:-?}"
-          SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
-          echo "sdk: $SDK"
-          echo "--- IOKitLib.h in SDK ---"
-          find "$SDK" -name 'IOKitLib.h' 2>/dev/null | head -n5
-          echo "--- plist keys ---"
-          grep -E 'UIDeviceFamily|MinimumOSVersion|CFBundleExecutable|CFBundleIdentifier' \
-            Sources/Info.plist 2>/dev/null || echo "Info.plist unreadable"
+          set -uo pipefail
+          P=F1OOB.xcodeproj/project.pbxproj
+          echo "--- project layout ---"
+          grep -c 'PBXFileSystemSynchronizedRootGroup' "$P" || true
+          grep -c 'PBXSourcesBuildPhase' "$P" || true
+          grep -c 'IOKitTrapShim.m' "$P" || true
+          echo "--- shim files on disk ---"
+          ls -l Sources/IOKitTrapShim.* 2>/dev/null || echo "shim files missing"
+          echo "--- main.m ---"
+          ls -l Sources/main.m 2>/dev/null || echo "main.m missing"
 
       - name: Patch project
         run: |
@@ -39,33 +41,79 @@ jobs:
           import re, pathlib
           p = pathlib.Path("F1OOB.xcodeproj/project.pbxproj")
           s = p.read_text()
+
           LINE = ('\t\t\t\tOTHER_LDFLAGS = ("-framework", "UIKit", "-framework", '
                   '"Foundation", "-framework", "IOKit", '
                   '"-Wl,-undefined,dynamic_lookup");\n')
-          if '"UIKit"' in s:
-              print("already has UIKit")
-              raise SystemExit(0)
-          s, n = re.subn(r"\t+OTHER_LDFLAGS = \([^)]*\);\n", LINE, s)
-          if n == 0:
-              s = re.sub(r"(buildSettings = \{\n)", r"\1" + LINE, s, count=2)
-              print("inserted into both buildSettings blocks")
+          if '"UIKit"' not in s:
+              s, n = re.subn(r"\t+OTHER_LDFLAGS = \([^)]*\);\n", LINE, s)
+              if n == 0:
+                  s = re.sub(r"(buildSettings = \{\n)", r"\1" + LINE, s, count=2)
+              print("link flags set")
+
+          if "PBXFileSystemSynchronizedRootGroup" in s:
+              print("layout: synchronized folder - no wiring needed")
+          elif "IOKitTrapShim.m in Sources" in s:
+              print("shim already wired")
           else:
-              print(f"replaced {n} existing OTHER_LDFLAGS line(s)")
+              BF  = "A1B2C3D4A1B2C3D4A1B2C3D4"
+              FRM = "A1B2C3D4A1B2C3D4A1B2C3D5"
+              FRH = "A1B2C3D4A1B2C3D4A1B2C3D6"
+              if FRM not in s:
+                  s = re.sub(r"(begin PBXBuildFile section\n)",
+                      r"\1\t\t" + BF + " /* IOKitTrapShim.m in Sources */ = {isa = PBXBuildFile; "
+                      "fileRef = " + FRM + " /* IOKitTrapShim.m */; };\n", s, count=1)
+                  s = re.sub(r"(begin PBXFileReference section\n)",
+                      r"\1\t\t" + FRM + ' /* IOKitTrapShim.m */ = {isa = PBXFileReference; '
+                      'lastKnownFileType = sourcecode.c.objc; path = IOKitTrapShim.m; '
+                      'sourceTree = "<group>"; };\n'
+                      "\t\t" + FRH + ' /* IOKitTrapShim.h */ = {isa = PBXFileReference; '
+                      'lastKnownFileType = sourcecode.c.h; path = IOKitTrapShim.h; '
+                      'sourceTree = "<group>"; };\n', s, count=1)
+                  print("added file references")
+
+              m = re.search(r"[ \t]*[A-Z0-9]{24} /\* main\.m \*/,\n", s)
+              if m:
+                  i = s.rfind("children = (", 0, m.end())
+                  if i != -1:
+                      j = s.index("\n", i) + 1
+                      s = (s[:j] + "\t\t\t\t" + FRM + " /* IOKitTrapShim.m */,\n"
+                           "\t\t\t\t" + FRH + " /* IOKitTrapShim.h */,\n" + s[j:])
+                      print("added to group")
+
+              bm = re.search(r"([A-Z0-9]{24}) /\* main\.m in Sources \*/", s)
+              if bm:
+                  k = s.find(bm.group(1))
+                  i = s.rfind("files = (", 0, k)
+                  if i != -1:
+                      j = s.index("\n", i) + 1
+                      s = (s[:j] + "\t\t\t\t" + BF
+                           + " /* IOKitTrapShim.m in Sources */,\n" + s[j:])
+                      print("added to Sources phase")
+
           p.write_text(s)
           PY
 
       - name: Verify project
         run: |
-          set -euo pipefail
+          set -uo pipefail
           P=F1OOB.xcodeproj/project.pbxproj
-          plutil -lint "$P"
+          plutil -lint "$P" || exit 1
           U=$(grep -c 'UIKit' "$P" || true)
           D=$(grep -c 'dynamic_lookup' "$P" || true)
-          S=$(grep -c 'IOKitTrapShim.m in Sources' "$P" || true)
-          echo "UIKit=$U dynamic_lookup=$D shim=$S"
+          SYNC=$(grep -c 'PBXFileSystemSynchronizedRootGroup' "$P" || true)
+          SRC=$(grep -c 'IOKitTrapShim.m in Sources' "$P" || true)
+          [ -f Sources/IOKitTrapShim.m ] && SHIM=1 || SHIM=0
+          echo "UIKit=$U dynamic_lookup=$D sync=$SYNC src=$SRC shimfile=$SHIM"
           [ "$U" -ge 2 ] || { echo "FAIL: UIKit missing from a config"; exit 1; }
           [ "$D" -ge 2 ] || { echo "FAIL: dynamic_lookup missing from a config"; exit 1; }
-          [ "$S" -ge 1 ] || { echo "FAIL: trap shim not in Sources phase"; exit 1; }
+          [ "$SHIM" -eq 1 ] || { echo "FAIL: Sources/IOKitTrapShim.m does not exist"; exit 1; }
+          if [ "$SRC" -ge 1 ] || [ "$SYNC" -ge 1 ]; then
+            echo "shim will compile"
+          else
+            echo "FAIL: no Sources entry and no synchronized folder"
+            exit 1
+          fi
 
       - name: Build
         run: |
