@@ -23,7 +23,6 @@ jobs:
           xcodebuild -version
 
       - name: Preflight
-        continue-on-error: true
         run: |
           echo "image: ${ImageOS:-?} ${ImageVersion:-?}"
           echo "arch: $(uname -m)"
@@ -47,7 +46,8 @@ jobs:
             -target F1OOB \
             -sdk iphoneos \
             -configuration Release \
-            -derivedDataPath build \
+            SYMROOT="$PWD/build" \
+            OBJROOT="$PWD/build/obj" \
             ARCHS=arm64 \
             ONLY_ACTIVE_ARCH=NO \
             CODE_SIGNING_ALLOWED=NO \
@@ -58,8 +58,12 @@ jobs:
       - name: Package IPA
         run: |
           set -euo pipefail
-          APP="$(find build/Build/Products/Release-iphoneos -maxdepth 1 -name '*.app' | head -n1)"
-          [ -n "$APP" ] || { echo "no .app produced"; exit 1; }
+          APP="$(find build/Release-iphoneos -maxdepth 1 -name '*.app' | head -n1)"
+          if [ -z "$APP" ]; then
+            echo "no .app produced; showing what did land:"
+            find build -name '*.app' 2>/dev/null
+            exit 1
+          fi
           echo "app: $APP"
 
           EXEC="$(basename "$APP" .app)"
