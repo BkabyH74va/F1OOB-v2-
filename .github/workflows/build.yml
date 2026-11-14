@@ -25,15 +25,21 @@ jobs:
           P=F1OOB.xcodeproj/project.pbxproj
           echo "sync=$(grep -c 'PBXFileSystemSynchronizedRootGroup' "$P" || true)"
           echo "phases=$(grep -c 'PBXSourcesBuildPhase' "$P" || true)"
+          echo "--- group paths ---"
+          grep -n 'path = Sources' "$P" || echo "no Sources group"
           echo "--- main.m ---"
           find . -name 'main.m' -not -path './build/*'
           echo "--- IOKitLib.h in SDK ---"
           find "$(xcrun --sdk iphoneos --show-sdk-path)" -name 'IOKitLib.h' 2>/dev/null | head -n3
-          echo "--- plist ---"
-          grep -E 'UIDeviceFamily|MinimumOSVersion|CFBundleExecutable' Sources/Info.plist || true
 
       - name: Patch project
         run: python3 scripts/patch_project.py
+
+      - name: Syntax check shim
+        run: |
+          SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
+          xcrun --sdk iphoneos clang -fsyntax-only -arch arm64 -isysroot "$SDK" \
+            -I. -ISources Sources/IOKitTrapShim.m && echo "shim OK"
 
       - name: Verify project
         run: |
@@ -42,12 +48,11 @@ jobs:
           U=$(grep -c 'UIKit' "$P" || true)
           SRC=$(grep -c 'IOKitTrapShim.m in Sources' "$P" || true)
           REF=$(grep -c 'path = IOKitTrapShim.m' "$P" || true)
-          SYNC=$(grep -c 'PBXFileSystemSynchronizedRootGroup' "$P" || true)
-          echo "UIKit=$U src=$SRC ref=$REF sync=$SYNC"
+          echo "UIKit=$U src=$SRC ref=$REF"
           [ "$U" -ge 2 ] || { echo "FAIL: UIKit flags"; exit 1; }
           [ -f Sources/IOKitTrapShim.m ] || { echo "FAIL: shim absent"; exit 1; }
-          [ "$REF" -ge 1 ] || [ "$SYNC" -ge 1 ] || { echo "FAIL: no file reference"; exit 1; }
-          [ "$SRC" -ge 1 ] || [ "$SYNC" -ge 1 ] || { echo "FAIL: shim not compiled"; exit 1; }
+          [ "$REF" -ge 1 ] || { echo "FAIL: no file reference"; exit 1; }
+          [ "$SRC" -ge 1 ] || { echo "FAIL: shim not compiled"; exit 1; }
           echo OK
 
       - name: Build
