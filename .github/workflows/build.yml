@@ -17,7 +17,6 @@ jobs:
       - name: Select Xcode
         run: |
           set -euo pipefail
-          ls -1 /Applications | grep -i '^Xcode' || true
           XCODE="$(ls -d /Applications/Xcode*.app 2>/dev/null | sort -V | tail -n1)"
           if [ -n "$XCODE" ]; then sudo xcode-select -s "$XCODE"; fi
           xcodebuild -version
@@ -25,18 +24,48 @@ jobs:
       - name: Preflight
         run: |
           echo "image: ${ImageOS:-?} ${ImageVersion:-?}"
-          echo "arch: $(uname -m)"
           SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
           echo "sdk: $SDK"
-          echo "--- IOKit framework in SDK ---"
-          ls "$SDK/System/Library/Frameworks/IOKit.framework" 2>/dev/null \
-            || echo "NO IOKit.framework in SDK"
-          echo "--- IOKitLib.h anywhere in SDK ---"
+          echo "--- IOKitLib.h in SDK ---"
           find "$SDK" -name 'IOKitLib.h' 2>/dev/null | head -n5
-          echo "--- vendored headers in repo ---"
-          find . -name '*.h' -path '*IOKit*' 2>/dev/null | head -n20
-          echo "--- sources ---"
-          ls -1 Sources 2>/dev/null || echo "no Sources dir"
+          echo "--- plist keys ---"
+          grep -E 'UIDeviceFamily|MinimumOSVersion|CFBundleExecutable|CFBundleIdentifier' \
+            Sources/Info.plist 2>/dev/null || echo "Info.plist unreadable"
+
+      - name: Patch project
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import re, pathlib
+          p = pathlib.Path("F1OOB.xcodeproj/project.pbxproj")
+          s = p.read_text()
+          LINE = ('\t\t\t\tOTHER_LDFLAGS = ("-framework", "UIKit", "-framework", '
+                  '"Foundation", "-framework", "IOKit", '
+                  '"-Wl,-undefined,dynamic_lookup");\n')
+          if '"UIKit"' in s:
+              print("already has UIKit")
+              raise SystemExit(0)
+          s, n = re.subn(r"\t+OTHER_LDFLAGS = \([^)]*\);\n", LINE, s)
+          if n == 0:
+              s = re.sub(r"(buildSettings = \{\n)", r"\1" + LINE, s, count=2)
+              print("inserted into both buildSettings blocks")
+          else:
+              print(f"replaced {n} existing OTHER_LDFLAGS line(s)")
+          p.write_text(s)
+          PY
+
+      - name: Verify project
+        run: |
+          set -euo pipefail
+          P=F1OOB.xcodeproj/project.pbxproj
+          plutil -lint "$P"
+          U=$(grep -c 'UIKit' "$P" || true)
+          D=$(grep -c 'dynamic_lookup' "$P" || true)
+          S=$(grep -c 'IOKitTrapShim.m in Sources' "$P" || true)
+          echo "UIKit=$U dynamic_lookup=$D shim=$S"
+          [ "$U" -ge 2 ] || { echo "FAIL: UIKit missing from a config"; exit 1; }
+          [ "$D" -ge 2 ] || { echo "FAIL: dynamic_lookup missing from a config"; exit 1; }
+          [ "$S" -ge 1 ] || { echo "FAIL: trap shim not in Sources phase"; exit 1; }
 
       - name: Build
         run: |
