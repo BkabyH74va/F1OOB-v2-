@@ -25,14 +25,73 @@ jobs:
         run: |
           set -uo pipefail
           P=F1OOB.xcodeproj/project.pbxproj
-          echo "--- project layout ---"
-          grep -c 'PBXFileSystemSynchronizedRootGroup' "$P" || true
-          grep -c 'PBXSourcesBuildPhase' "$P" || true
-          grep -c 'IOKitTrapShim.m' "$P" || true
-          echo "--- shim files on disk ---"
-          ls -l Sources/IOKitTrapShim.* 2>/dev/null || echo "shim files missing"
-          echo "--- main.m ---"
-          ls -l Sources/main.m 2>/dev/null || echo "main.m missing"
+          echo "--- layout ---"
+          echo "sync=$(grep -c 'PBXFileSystemSynchronizedRootGroup' "$P" || true)"
+          echo "sourcesphases=$(grep -c 'PBXSourcesBuildPhase' "$P" || true)"
+          echo "--- where is main.m ---"
+          find . -name 'main.m' -not -path './build/*' 2>/dev/null
+          echo "--- tree ---"
+          find . -maxdepth 2 -name '*.m' -o -maxdepth 2 -name '*.h' -o -maxdepth 2 -name '*.plist' 2>/dev/null | head -n40
+
+      - name: Ensure shim
+        run: |
+          set -euo pipefail
+          mkdir -p Sources
+          if [ ! -f Sources/IOKitTrapShim.h ]; then
+            cat > Sources/IOKitTrapShim.h <<'EOF'
+#import <IOKit/IOKitLib.h>
+
+kern_return_t shim_IOConnectTrap0(io_connect_t connect, uint32_t index, uint64_t a);
+kern_return_t shim_IOConnectTrap1(io_connect_t connect, uint32_t index, uint64_t a, uint64_t b);
+kern_return_t shim_IOConnectTrap2(io_connect_t connect, uint32_t index, uint64_t a, uint64_t b, uint64_t c);
+kern_return_t shim_IOConnectTrap3(io_connect_t connect, uint32_t index, uint64_t a, uint64_t b, uint64_t c, uint64_t d);
+kern_return_t shim_IOConnectTrap4(io_connect_t connect, uint32_t index, uint64_t a, uint64_t b, uint64_t c, uint64_t d, uint64_t e);
+kern_return_t shim_IOConnectTrap5(io_connect_t connect, uint32_t index, uint64_t a, uint64_t b, uint64_t c, uint64_t d, uint64_t e, uint64_t f);
+kern_return_t shim_IOConnectTrap6(io_connect_t connect, uint32_t index, uint64_t a, uint64_t b, uint64_t c, uint64_t d, uint64_t e, uint64_t f, uint64_t g);
+
+#ifndef F1OOB_KEEP_RAW_TRAPS
+#define IOConnectTrap0 shim_IOConnectTrap0
+#define IOConnectTrap1 shim_IOConnectTrap1
+#define IOConnectTrap2 shim_IOConnectTrap2
+#define IOConnectTrap3 shim_IOConnectTrap3
+#define IOConnectTrap4 shim_IOConnectTrap4
+#define IOConnectTrap5 shim_IOConnectTrap5
+#define IOConnectTrap6 shim_IOConnectTrap6
+#endif
+EOF
+            echo "created header"
+          else
+            echo "header present"
+          fi
+
+          if [ ! -f Sources/IOKitTrapShim.m ]; then
+            cat > Sources/IOKitTrapShim.m <<'EOF'
+#import "IOKitTrapShim.h"
+#import <dlfcn.h>
+
+#define F1OOB_TRAP(N, TYPES, ARGS)                                              \
+    static kern_return_t (*f1oob_real_##N) TYPES;                               \
+    kern_return_t shim_IOConnectTrap##N TYPES {                                 \
+        if (!f1oob_real_##N)                                                    \
+            f1oob_real_##N = (kern_return_t (*) TYPES)                          \
+                dlsym(RTLD_DEFAULT, "IOConnectTrap" #N);                        \
+        if (!f1oob_real_##N)                                                    \
+            return KERN_FAILURE;                                                \
+        return f1oob_real_##N ARGS;                                             \
+    }
+
+F1OOB_TRAP(0, (io_connect_t c, uint32_t i, uint64_t a), (c, i, a))
+F1OOB_TRAP(1, (io_connect_t c, uint32_t i, uint64_t a, uint64_t b), (c, i, a, b))
+F1OOB_TRAP(2, (io_connect_t c, uint32_t i, uint64_t a, uint64_t b, uint64_t d), (c, i, a, b, d))
+F1OOB_TRAP(3, (io_connect_t c, uint32_t i, uint64_t a, uint64_t b, uint64_t d, uint64_t e), (c, i, a, b, d, e))
+F1OOB_TRAP(4, (io_connect_t c, uint32_t i, uint64_t a, uint64_t b, uint64_t d, uint64_t e, uint64_t f), (c, i, a, b, d, e, f))
+F1OOB_TRAP(5, (io_connect_t c, uint32_t i, uint64_t a, uint64_t b, uint64_t d, uint64_t e, uint64_t f, uint64_t g), (c, i, a, b, d, e, f, g))
+F1OOB_TRAP(6, (io_connect_t c, uint32_t i, uint64_t a, uint64_t b, uint64_t d, uint64_t e, uint64_t f, uint64_t g, uint64_t h), (c, i, a, b, d, e, f, g, h))
+EOF
+            echo "created implementation"
+          else
+            echo "implementation present"
+          fi
 
       - name: Patch project
         run: |
@@ -50,45 +109,46 @@ jobs:
               if n == 0:
                   s = re.sub(r"(buildSettings = \{\n)", r"\1" + LINE, s, count=2)
               print("link flags set")
+          else:
+              print("link flags already set")
+
+          BF = "A1B2C3D4A1B2C3D4A1B2C3D4"
+          FR = "A1B2C3D4A1B2C3D4A1B2C3D5"
 
           if "PBXFileSystemSynchronizedRootGroup" in s:
-              print("layout: synchronized folder - no wiring needed")
-          elif "IOKitTrapShim.m in Sources" in s:
-              print("shim already wired")
+              print("synchronized folder: no wiring needed")
+          elif FR in s:
+              print("already wired")
           else:
-              BF  = "A1B2C3D4A1B2C3D4A1B2C3D4"
-              FRM = "A1B2C3D4A1B2C3D4A1B2C3D5"
-              FRH = "A1B2C3D4A1B2C3D4A1B2C3D6"
-              if FRM not in s:
-                  s = re.sub(r"(begin PBXBuildFile section\n)",
-                      r"\1\t\t" + BF + " /* IOKitTrapShim.m in Sources */ = {isa = PBXBuildFile; "
-                      "fileRef = " + FRM + " /* IOKitTrapShim.m */; };\n", s, count=1)
-                  s = re.sub(r"(begin PBXFileReference section\n)",
-                      r"\1\t\t" + FRM + ' /* IOKitTrapShim.m */ = {isa = PBXFileReference; '
-                      'lastKnownFileType = sourcecode.c.objc; path = IOKitTrapShim.m; '
-                      'sourceTree = "<group>"; };\n'
-                      "\t\t" + FRH + ' /* IOKitTrapShim.h */ = {isa = PBXFileReference; '
-                      'lastKnownFileType = sourcecode.c.h; path = IOKitTrapShim.h; '
-                      'sourceTree = "<group>"; };\n', s, count=1)
-                  print("added file references")
+              s = re.sub(r"(begin PBXBuildFile section\n)",
+                  r"\1\t\t" + BF + " /* IOKitTrapShim.m in Sources */ = {isa = PBXBuildFile; "
+                  "fileRef = " + FR + " /* IOKitTrapShim.m */; };\n", s, count=1)
+              s = re.sub(r"(begin PBXFileReference section\n)",
+                  r"\1\t\t" + FR + ' /* IOKitTrapShim.m */ = {isa = PBXFileReference; '
+                  'lastKnownFileType = sourcecode.c.objc; path = IOKitTrapShim.m; '
+                  'sourceTree = "<group>"; };\n', s, count=1)
+              print("added file references")
 
-              m = re.search(r"[ \t]*[A-Z0-9]{24} /\* main\.m \*/,\n", s)
+              m = re.search(r"[A-Za-z0-9]{24} /\* main\.m \*/", s)
               if m:
                   i = s.rfind("children = (", 0, m.end())
                   if i != -1:
                       j = s.index("\n", i) + 1
-                      s = (s[:j] + "\t\t\t\t" + FRM + " /* IOKitTrapShim.m */,\n"
-                           "\t\t\t\t" + FRH + " /* IOKitTrapShim.h */,\n" + s[j:])
+                      s = s[:j] + "\t\t\t\t" + FR + " /* IOKitTrapShim.m */,\n" + s[j:]
                       print("added to group")
+              else:
+                  print("WARN: no main.m group entry, membership skipped")
 
-              bm = re.search(r"([A-Z0-9]{24}) /\* main\.m in Sources \*/", s)
-              if bm:
-                  k = s.find(bm.group(1))
-                  i = s.rfind("files = (", 0, k)
-                  if i != -1:
+              b = s.find("isa = PBXSourcesBuildPhase;")
+              if b == -1:
+                  print("FAIL: no PBXSourcesBuildPhase")
+              else:
+                  i = s.find("files = (", b)
+                  if i == -1:
+                      print("FAIL: Sources phase has no files array")
+                  else:
                       j = s.index("\n", i) + 1
-                      s = (s[:j] + "\t\t\t\t" + BF
-                           + " /* IOKitTrapShim.m in Sources */,\n" + s[j:])
+                      s = s[:j] + "\t\t\t\t" + BF + " /* IOKitTrapShim.m in Sources */,\n" + s[j:]
                       print("added to Sources phase")
 
           p.write_text(s)
@@ -105,15 +165,11 @@ jobs:
           SRC=$(grep -c 'IOKitTrapShim.m in Sources' "$P" || true)
           [ -f Sources/IOKitTrapShim.m ] && SHIM=1 || SHIM=0
           echo "UIKit=$U dynamic_lookup=$D sync=$SYNC src=$SRC shimfile=$SHIM"
-          [ "$U" -ge 2 ] || { echo "FAIL: UIKit missing from a config"; exit 1; }
-          [ "$D" -ge 2 ] || { echo "FAIL: dynamic_lookup missing from a config"; exit 1; }
-          [ "$SHIM" -eq 1 ] || { echo "FAIL: Sources/IOKitTrapShim.m does not exist"; exit 1; }
-          if [ "$SRC" -ge 1 ] || [ "$SYNC" -ge 1 ]; then
-            echo "shim will compile"
-          else
-            echo "FAIL: no Sources entry and no synchronized folder"
-            exit 1
-          fi
+          [ "$U" -ge 2 ] || { echo "FAIL: UIKit missing"; exit 1; }
+          [ "$D" -ge 2 ] || { echo "FAIL: dynamic_lookup missing"; exit 1; }
+          [ "$SHIM" -eq 1 ] || { echo "FAIL: shim file still absent"; exit 1; }
+          [ "$SRC" -ge 1 ] || [ "$SYNC" -ge 1 ] || { echo "FAIL: shim not compiled"; exit 1; }
+          echo "OK"
 
       - name: Build
         run: |
