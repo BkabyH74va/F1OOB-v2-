@@ -1,29 +1,86 @@
 name: Build IPA
-on: [push, workflow_dispatch]
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
 
 jobs:
   build:
-    runs-on: macos-14
+    runs-on: macos-latest
+    timeout-minutes: 40
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Select Xcode
-        run: sudo xcode-select -s /Applications/Xcode_15.4.app
+        run: |
+          set -euo pipefail
+          ls -1 /Applications | grep -i '^Xcode' || true
+          XCODE="$(ls -d /Applications/Xcode*.app 2>/dev/null | sort -V | tail -n1)"
+          if [ -n "$XCODE" ]; then sudo xcode-select -s "$XCODE"; fi
+          xcodebuild -version
+
+      - name: Preflight
+        continue-on-error: true
+        run: |
+          echo "image: ${ImageOS:-?} ${ImageVersion:-?}"
+          echo "arch: $(uname -m)"
+          SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
+          echo "sdk: $SDK"
+          echo "--- IOKit framework in SDK ---"
+          ls "$SDK/System/Library/Frameworks/IOKit.framework" 2>/dev/null \
+            || echo "NO IOKit.framework in SDK"
+          echo "--- IOKitLib.h anywhere in SDK ---"
+          find "$SDK" -name 'IOKitLib.h' 2>/dev/null | head -n5
+          echo "--- vendored headers in repo ---"
+          find . -name '*.h' -path '*IOKit*' 2>/dev/null | head -n20
+          echo "--- sources ---"
+          ls -1 Sources 2>/dev/null || echo "no Sources dir"
+
       - name: Build
         run: |
-          xcodebuild -project F1OOB.xcodeproj -target F1OOB \
-            -sdk iphoneos -configuration Release \
+          set -o pipefail
+          xcodebuild \
+            -project F1OOB.xcodeproj \
+            -target F1OOB \
+            -sdk iphoneos \
+            -configuration Release \
             -derivedDataPath build \
-            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
+            ARCHS=arm64 \
+            ONLY_ACTIVE_ARCH=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
             build
-      - name: Package
+
+      - name: Package IPA
         run: |
-          APP=$(find build/Build/Products/Release-iphoneos -name '*.app' -maxdepth 1)
-          mkdir -p Payload && cp -R "$APP" Payload/
-          brew install ldid
-          ldid -S F1OOB.entitlements "Payload/$(basename "$APP")/F1OOB"
-          zip -qr F1OOB.ipa Payload
-      - uses: actions/upload-artifact@v4
+          set -euo pipefail
+          APP="$(find build/Build/Products/Release-iphoneos -maxdepth 1 -name '*.app' | head -n1)"
+          [ -n "$APP" ] || { echo "no .app produced"; exit 1; }
+          echo "app: $APP"
+
+          EXEC="$(basename "$APP" .app)"
+          mkdir -p Payload
+          cp -R "$APP" Payload/
+
+          brew install ldid >/dev/null
+          if [ -f F1OOB.entitlements ]; then
+            codesign -s - --force --entitlements F1OOB.entitlements \
+              --generate-entitlement-der "Payload/$EXEC.app/$EXEC" 2>/dev/null || \
+            ldid -S F1OOB.entitlements "Payload/$EXEC.app/$EXEC"
+          else
+            echo "F1OOB.entitlements missing; ad-hoc signing only"
+            ldid -S "Payload/$EXEC.app/$EXEC"
+          fi
+
+          zip -qry F1OOB.ipa Payload
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
         with:
           name: F1OOB-ipa
           path: F1OOB.ipa
+          if-no-files-found: error
